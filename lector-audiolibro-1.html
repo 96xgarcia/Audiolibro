@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lector en voz alta</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --paper:#F6F2E9;
+    --paper-dim:#EFE9DB;
+    --ink:#201B14;
+    --ink-soft:#6B6153;
+    --ribbon:#8B3A3A;
+    --ribbon-soft:rgba(139,58,58,0.10);
+    --line:rgba(32,27,20,0.14);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper-dim);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    padding:28px 14px;
+  }
+  .card{
+    position:relative;
+    width:100%;
+    max-width:640px;
+    background:var(--paper);
+    border-radius:2px;
+    box-shadow:0 1px 2px rgba(32,27,20,0.08), 0 12px 32px rgba(32,27,20,0.10);
+    overflow:hidden;
+  }
+  .ribbon{
+    position:absolute;
+    top:0;
+    right:28px;
+    width:34px;
+    height:64px;
+    background:var(--ribbon);
+    clip-path:polygon(0 0,100% 0,100% 100%,50% 78%,0 100%);
+    z-index:3;
+    transition:height .4s ease;
+    box-shadow:0 2px 6px rgba(0,0,0,0.15);
+  }
+  header{
+    padding:34px 30px 18px;
+    border-bottom:1px solid var(--line);
+  }
+  .eyebrow{
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--ribbon);
+    margin:0 0 6px;
+    font-weight:600;
+  }
+  h1{
+    font-family:Georgia,'Iowan Old Style','Palatino Linotype',serif;
+    font-size:26px;
+    font-weight:400;
+    margin:0 0 4px;
+    padding-right:60px;
+    line-height:1.25;
+  }
+  .subtitle{
+    font-size:13px;
+    color:var(--ink-soft);
+    margin:0;
+  }
+  .drop{
+    margin:24px 30px 34px;
+    border:1.5px dashed var(--line);
+    border-radius:2px;
+    padding:46px 20px;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+  }
+  .drop:hover, .drop.drag{
+    border-color:var(--ribbon);
+    background:var(--ribbon-soft);
+  }
+  .drop-icon{font-size:28px;margin-bottom:10px;opacity:.7;}
+  .drop-title{font-family:Georgia,serif;font-size:17px;margin:0 0 6px;}
+  .drop-sub{font-size:12.5px;color:var(--ink-soft);margin:0;}
+  input[type=file]{display:none;}
+  .status{
+    margin:0 30px 30px;
+    font-size:13px;
+    color:var(--ink-soft);
+    display:none;
+  }
+  .status.show{display:block;}
+  .bar-track{
+    height:3px;
+    background:var(--line);
+    border-radius:2px;
+    margin-top:8px;
+    overflow:hidden;
+  }
+  .bar-fill{
+    height:100%;
+    background:var(--ribbon);
+    width:0%;
+    transition:width .2s ease;
+  }
+  .reader{display:none;}
+  .reader.show{display:block;}
+  .meta-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    padding:16px 30px 0;
+  }
+  .chapter-title{
+    font-family:Georgia,serif;
+    font-size:15px;
+    color:var(--ink);
+    margin:0;
+  }
+  .page-count{
+    font-size:12px;
+    color:var(--ink-soft);
+    white-space:nowrap;
+    margin-left:12px;
+  }
+  .text-panel{
+    margin:14px 30px 0;
+    height:280px;
+    overflow-y:auto;
+    padding:18px 20px;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:2px;
+    font-family:Georgia,'Iowan Old Style',serif;
+    font-size:16.5px;
+    line-height:1.75;
+    color:var(--ink);
+  }
+  .text-panel .s{
+    cursor:pointer;
+    border-radius:2px;
+    padding:1px 2px;
+  }
+  .text-panel .s:hover{background:var(--ribbon-soft);}
+  .text-panel .s.active{
+    background:var(--ribbon-soft);
+    box-shadow:inset 0 -2px 0 var(--ribbon);
+  }
+  .progress-row{
+    margin:12px 30px 0;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-size:11px;
+    color:var(--ink-soft);
+  }
+  .sent-bar-track{
+    flex:1;
+    height:3px;
+    background:var(--line);
+    border-radius:2px;
+    overflow:hidden;
+  }
+  .sent-bar-fill{
+    height:100%;
+    background:var(--ribbon);
+    width:0%;
+  }
+  .transport{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    padding:22px 30px 6px;
+  }
+  .btn{
+    border:1px solid var(--line);
+    background:#fff;
+    color:var(--ink);
+    border-radius:999px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    transition:border-color .15s ease, transform .1s ease;
+  }
+  .btn:active{transform:scale(0.94);}
+  .btn:hover{border-color:var(--ribbon);}
+  .btn-sm{width:40px;height:40px;font-size:15px;}
+  .btn-play{
+    width:56px;height:56px;font-size:19px;
+    background:var(--ink);
+    color:var(--paper);
+    border-color:var(--ink);
+  }
+  .btn-play:hover{background:var(--ribbon);border-color:var(--ribbon);}
+  .btn:focus-visible, .drop:focus-visible, select:focus-visible, input[type=range]:focus-visible{
+    outline:2px solid var(--ribbon);
+    outline-offset:2px;
+  }
+  .controls{
+    padding:18px 30px 6px;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px 20px;
+  }
+  .control label{
+    display:block;
+    font-size:11px;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    margin-bottom:6px;
+  }
+  .control .value{color:var(--ink);font-weight:600;letter-spacing:0;text-transform:none;}
+  input[type=range]{
+    width:100%;
+    accent-color:var(--ribbon);
+  }
+  select{
+    width:100%;
+    font-size:13px;
+    padding:8px 10px;
+    border:1px solid var(--line);
+    border-radius:2px;
+    background:#fff;
+    color:var(--ink);
+    font-family:inherit;
+  }
+  .engine-panel{
+    margin:0 30px 18px;
+    padding:14px 16px;
+    border:1px solid var(--line);
+    border-radius:2px;
+    background:var(--ribbon-soft);
+  }
+  .engine-panel p{
+    margin:0 0 10px;
+    font-size:12px;
+    color:var(--ink-soft);
+    line-height:1.5;
+  }
+  .engine-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .engine-row select{width:auto;flex:1;min-width:140px;}
+  .load-btn{
+    font-size:12.5px;
+    padding:9px 14px;
+    border:1px solid var(--ink);
+    background:var(--ink);
+    color:var(--paper);
+    border-radius:2px;
+    cursor:pointer;
+  }
+  .load-btn:hover{background:var(--ribbon);border-color:var(--ribbon);}
+  .load-btn:disabled{opacity:.5;cursor:default;}
+  .engine-status{
+    margin-top:10px;
+    font-size:11.5px;
+    color:var(--ink-soft);
+    display:none;
+  }
+  .engine-status.show{display:block;}
+  .footer-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:6px 30px 26px;
+  }
+  .new-file{
+    font-size:12px;
+    color:var(--ink-soft);
+    background:none;
+    border:none;
+    text-decoration:underline;
+    cursor:pointer;
+    padding:0;
+  }
+  .new-file:hover{color:var(--ribbon);}
+  .unsupported{font-size:12px;color:var(--ink-soft);}
+  .error{
+    margin:0 30px 22px;
+    font-size:13px;
+    color:var(--ribbon);
+    display:none;
+  }
+  .error.show{display:block;}
+  @media (max-width:480px){
+    header,.drop,.status,.meta-row,.text-panel,.progress-row,.transport,.controls,.footer-row,.error,.engine-panel{margin-left:18px;margin-right:18px;}
+    header{padding-left:20px;padding-right:20px;}
+    .text-panel{margin-left:20px;margin-right:20px;height:240px;}
+    .controls{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="ribbon" id="ribbon" style="height:0;"></div>
+
+  <header>
+    <p class="eyebrow">Audiolibro</p>
+    <h1 id="bookTitle">Lector en voz alta</h1>
+    <p class="subtitle" id="bookSub">Sube un PDF o EPUB para escucharlo mientras haces otra cosa</p>
+  </header>
+
+  <div id="dropZone" class="drop" tabindex="0" role="button" aria-label="Subir archivo PDF o EPUB">
+    <div class="drop-icon">📖</div>
+    <p class="drop-title">Arrastra tu archivo aquí</p>
+    <p class="drop-sub">o toca para elegir un PDF o EPUB</p>
+    <input type="file" id="fileInput" accept=".pdf,.epub">
+  </div>
+
+  <div class="status" id="status">
+    Leyendo archivo…
+    <div class="bar-track"><div class="bar-fill" id="loadBar"></div></div>
+  </div>
+
+  <div class="error" id="errorBox"></div>
+
+  <div class="reader" id="reader">
+    <div class="meta-row">
+      <p class="chapter-title" id="chapterTitle">—</p>
+      <span class="page-count" id="pageCount">—</span>
+    </div>
+
+    <div class="text-panel" id="textPanel"></div>
+
+    <div class="progress-row">
+      <span id="sentLabel">0/0</span>
+      <div class="sent-bar-track"><div class="sent-bar-fill" id="sentBar"></div></div>
+    </div>
+
+    <div class="transport">
+      <button class="btn btn-sm" id="prevPageBtn" title="Página anterior" aria-label="Página anterior">⏮</button>
+      <button class="btn btn-sm" id="prevSentBtn" title="Frase anterior" aria-label="Frase anterior">◀</button>
+      <button class="btn btn-play" id="playBtn" title="Reproducir" aria-label="Reproducir o pausar">▶</button>
+      <button class="btn btn-sm" id="nextSentBtn" title="Frase siguiente" aria-label="Frase siguiente">▶</button>
+      <button class="btn btn-sm" id="nextPageBtn" title="Página siguiente" aria-label="Página siguiente">⏭</button>
+    </div>
+
+    <div class="controls">
+      <div class="control">
+        <label>Velocidad · <span class="value" id="rateValue">1.0×</span></label>
+        <input type="range" id="rateRange" min="0.5" max="2" step="0.1" value="1">
+      </div>
+      <div class="control">
+        <label>Ir a página</label>
+        <select id="pageSelect"></select>
+      </div>
+    </div>
+
+    <div class="engine-panel">
+      <p>Motor de voz</p>
+      <div class="engine-row">
+        <select id="engineSelect">
+          <option value="system">Voz del sistema (rápida)</option>
+          <option value="kokoro">Voz neuronal Kokoro (más natural)</option>
+        </select>
+        <select id="voiceSelect"></select>
+      </div>
+      <div class="engine-row" id="kokoroRow" style="display:none; margin-top:10px;">
+        <select id="kokoroVoiceSelect">
+          <option value="ef_dora">Español (mujer) · Dora</option>
+          <option value="em_alex">Español (hombre) · Alex</option>
+          <option value="em_santa">Español (hombre) · Santa</option>
+          <option value="af_heart">Inglés (mujer) · Heart</option>
+          <option value="bf_emma">Inglés UK (mujer) · Emma</option>
+        </select>
+        <button class="load-btn" id="loadKokoroBtn">Descargar voz (~90 MB, una vez)</button>
+      </div>
+      <div class="status engine-status" id="kokoroStatus">
+        Descargando modelo de voz…
+        <div class="bar-track"><div class="bar-fill" id="kokoroBar"></div></div>
+      </div>
+    </div>
+
+    <div class="footer-row">
+      <button class="new-file" id="newFileBtn">Cargar otro archivo</button>
+      <span class="unsupported" id="supportNote"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const state = {
+    pages: [],
+    pageIndex: 0,
+    sentenceIndex: 0,
+    playing: false,
+    rate: 1,
+    voice: null,
+    engine: 'system',
+    kokoroTTS: null,
+    kokoroLoading: false,
+    kokoroVoice: 'ef_dora',
+  };
+  let voices = [];
+  let currentAudioEl = null;
+
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const statusEl = document.getElementById('status');
+  const loadBar = document.getElementById('loadBar');
+  const errorBox = document.getElementById('errorBox');
+  const reader = document.getElementById('reader');
+  const bookTitleEl = document.getElementById('bookTitle');
+  const bookSubEl = document.getElementById('bookSub');
+  const chapterTitleEl = document.getElementById('chapterTitle');
+  const pageCountEl = document.getElementById('pageCount');
+  const textPanel = document.getElementById('textPanel');
+  const sentLabel = document.getElementById('sentLabel');
+  const sentBar = document.getElementById('sentBar');
+  const playBtn = document.getElementById('playBtn');
+  const prevPageBtn = document.getElementById('prevPageBtn');
+  const nextPageBtn = document.getElementById('nextPageBtn');
+  const prevSentBtn = document.getElementById('prevSentBtn');
+  const nextSentBtn = document.getElementById('nextSentBtn');
+  const rateRange = document.getElementById('rateRange');
+  const rateValue = document.getElementById('rateValue');
+  const pageSelect = document.getElementById('pageSelect');
+  const voiceSelect = document.getElementById('voiceSelect');
+  const newFileBtn = document.getElementById('newFileBtn');
+  const ribbon = document.getElementById('ribbon');
+  const supportNote = document.getElementById('supportNote');
+  const engineSelect = document.getElementById('engineSelect');
+  const kokoroRow = document.getElementById('kokoroRow');
+  const kokoroVoiceSelect = document.getElementById('kokoroVoiceSelect');
+  const loadKokoroBtn = document.getElementById('loadKokoroBtn');
+  const kokoroStatus = document.getElementById('kokoroStatus');
+  const kokoroBar = document.getElementById('kokoroBar');
+
+  if (!('speechSynthesis' in window)) {
+    supportNote.textContent = 'Tu navegador no soporta lectura en voz alta.';
+  }
+
+  function showError(msg){
+    errorBox.textContent = msg;
+    errorBox.classList.add('show');
+  }
+  function clearError(){
+    errorBox.classList.remove('show');
+    errorBox.textContent = '';
+  }
+  function setStatus(msg, pct){
+    statusEl.classList.add('show');
+    statusEl.firstChild.textContent = msg;
+    loadBar.style.width = (pct||0) + '%';
+  }
+  function hideStatus(){ statusEl.classList.remove('show'); }
+
+  function splitSentences(text){
+    text = text.replace(/\s+/g,' ').trim();
+    if (!text) return [];
+    const parts = text.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g);
+    return (parts || [text]).map(s=>s.trim()).filter(Boolean);
+  }
+
+  function resolvePath(dir, href){
+    try{
+      const base = 'https://x/' + (dir ? dir + '/' : '');
+      const url = new URL(href, base);
+      return decodeURIComponent(url.pathname.replace(/^\//,''));
+    }catch(e){ return href; }
+  }
+
+  async function extractPDF(arrayBuffer){
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+    const pages = [];
+    for (let i=1;i<=pdf.numPages;i++){
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const text = content.items.map(it=>it.str).join(' ');
+      const sentences = splitSentences(text);
+      if (sentences.length) pages.push({title:`Página ${i}`, sentences});
+      setStatus(`Leyendo PDF… página ${i} de ${pdf.numPages}`, Math.round(i/pdf.numPages*100));
+    }
+    if (!pages.length) throw new Error('No se encontró texto legible en este PDF (puede ser un escaneo de imágenes).');
+    return {title: null, pages};
+  }
+
+  async function extractEPUB(arrayBuffer){
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const containerFile = zip.file('META-INF/container.xml');
+    if (!containerFile) throw new Error('El archivo EPUB no tiene una estructura válida.');
+    const containerXml = await containerFile.async('string');
+    const containerDoc = new DOMParser().parseFromString(containerXml, 'application/xml');
+    const rootfileEl = containerDoc.getElementsByTagName('rootfile')[0];
+    if (!rootfileEl) throw new Error('No se pudo localizar el contenido del EPUB.');
+    const opfPath = rootfileEl.getAttribute('full-path');
+    const opfDir = opfPath.split('/').slice(0,-1).join('/');
+    const opfFile = zip.file(opfPath);
+    const opfXml = await opfFile.async('string');
+    const opfDoc = new DOMParser().parseFromString(opfXml, 'application/xml');
+    const manifest = {};
+    Array.from(opfDoc.getElementsByTagName('item')).forEach(it=>{
+      manifest[it.getAttribute('id')] = it.getAttribute('href');
+    });
+    const spineOrder = Array.from(opfDoc.getElementsByTagName('itemref')).map(it=>it.getAttribute('idref'));
+    let bookTitle = 'Libro';
+    const titleEl = opfDoc.getElementsByTagName('dc:title')[0] ||
+                     (opfDoc.getElementsByTagNameNS ? opfDoc.getElementsByTagNameNS('*','title')[0] : null);
+    if (titleEl && titleEl.textContent) bookTitle = titleEl.textContent.trim();
+    const pages = [];
+    for (let idref of spineOrder){
+      const href = manifest[idref];
+      if (!href) continue;
+      const fullPath = resolvePath(opfDir, href);
+      const chapFile = zip.file(fullPath);
+      if (!chapFile) continue;
+      const chapXml = await chapFile.async('string');
+      const doc = new DOMParser().parseFromString(chapXml, 'text/html');
+      const text = (doc.body ? doc.body.textContent : doc.documentElement.textContent) || '';
+      let chapterTitle = null;
+      const h = doc.querySelector('h1,h2,h3,title');
+      if (h && h.textContent.trim()) chapterTitle = h.textContent.trim();
+      const sentences = splitSentences(text);
+      if (sentences.length){
+        pages.push({title: chapterTitle || `Capítulo ${pages.length+1}`, sentences});
+      }
+      setStatus(`Leyendo EPUB… ${pages.length} capítulos procesados`, Math.min(95, pages.length*4));
+    }
+    if (!pages.length) throw new Error('No se encontró texto legible en este EPUB.');
+    return {title: bookTitle, pages};
+  }
+
+  async function handleFile(file){
+    clearError();
+    stopPlaybackEngines();
+    state.playing = false;
+    reader.classList.remove('show');
+    dropZone.style.display = 'none';
+    setStatus('Leyendo archivo…', 3);
+    const name = file.name.toLowerCase();
+    try{
+      const buffer = await file.arrayBuffer();
+      let result;
+      if (name.endsWith('.pdf')) result = await extractPDF(buffer);
+      else if (name.endsWith('.epub')) result = await extractEPUB(buffer);
+      else throw new Error('Formato no soportado. Usa un archivo .pdf o .epub.');
+      state.pages = result.pages;
+      state.pageIndex = 0;
+      state.sentenceIndex = 0;
+      bookTitleEl.textContent = result.title || file.name.replace(/\.(pdf|epub)$/i,'');
+      bookSubEl.textContent = `${state.pages.length} ${name.endsWith('.pdf') ? 'páginas' : 'capítulos'} · listo para escuchar`;
+      buildPageSelect();
+      renderPage();
+      hideStatus();
+      reader.classList.add('show');
+    }catch(err){
+      hideStatus();
+      dropZone.style.display = 'block';
+      showError(err.message || 'No se pudo leer el archivo.');
+    }
+  }
+
+  dropZone.addEventListener('click', ()=>fileInput.click());
+  dropZone.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' ') fileInput.click(); });
+  fileInput.addEventListener('change', e=>{ if (e.target.files[0]) handleFile(e.target.files[0]); });
+  ['dragover','dragenter'].forEach(ev=>{
+    dropZone.addEventListener(ev, e=>{ e.preventDefault(); dropZone.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(ev=>{
+    dropZone.addEventListener(ev, e=>{ e.preventDefault(); dropZone.classList.remove('drag'); });
+  });
+  dropZone.addEventListener('drop', e=>{ const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+
+  newFileBtn.addEventListener('click', ()=>{
+    stopPlaybackEngines();
+    state.playing = false;
+    state.pages = [];
+    reader.classList.remove('show');
+    dropZone.style.display = 'block';
+    bookTitleEl.textContent = 'Lector en voz alta';
+    bookSubEl.textContent = 'Sube un PDF o EPUB para escucharlo mientras haces otra cosa';
+    ribbon.style.height = '0';
+    fileInput.value = '';
+    clearError();
+  });
+
+  function buildPageSelect(){
+    pageSelect.innerHTML = '';
+    state.pages.forEach((p,i)=>{
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = `${i+1}. ${p.title}`;
+      pageSelect.appendChild(opt);
+    });
+  }
+
+  function renderPage(){
+    const page = state.pages[state.pageIndex];
+    if (!page) return;
+    chapterTitleEl.textContent = page.title;
+    pageCountEl.textContent = `Página ${state.pageIndex+1} de ${state.pages.length}`;
+    pageSelect.value = state.pageIndex;
+    textPanel.innerHTML = page.sentences.map((s,i)=>
+      `<span class="s" data-i="${i}">${escapeHtml(s)} </span>`
+    ).join('');
+    textPanel.querySelectorAll('.s').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        state.sentenceIndex = parseInt(el.dataset.i,10);
+        updateHighlight();
+        if (state.playing) startSpeaking();
+      });
+    });
+    updateHighlight();
+    updateRibbon();
+  }
+
+  function escapeHtml(str){
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  function updateHighlight(){
+    const page = state.pages[state.pageIndex];
+    if (!page) return;
+    textPanel.querySelectorAll('.s').forEach(el=>{
+      el.classList.toggle('active', parseInt(el.dataset.i,10) === state.sentenceIndex);
+    });
+    const active = textPanel.querySelector('.s.active');
+    if (active) active.scrollIntoView({block:'center', behavior:'smooth'});
+    const total = page.sentences.length;
+    sentLabel.textContent = `${Math.min(state.sentenceIndex+1,total)}/${total}`;
+    sentBar.style.width = total ? `${(state.sentenceIndex/total)*100}%` : '0%';
+  }
+
+  function updateRibbon(){
+    const pct = state.pages.length ? (state.pageIndex/(state.pages.length-1 || 1))*100 : 0;
+    const h = 64 + (pct/100)*40;
+    ribbon.style.height = Math.min(h,104) + 'px';
+  }
+
+  // ---------- playback (shared) ----------
+  function stopPlaybackEngines(){
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    if (currentAudioEl){
+      currentAudioEl.pause();
+      currentAudioEl.onended = null;
+      currentAudioEl.src = '';
+      currentAudioEl = null;
+    }
+  }
+
+  function pickVoice(){
+    if (state.voice) return state.voice;
+    return voices.find(v=>v.lang && v.lang.toLowerCase().startsWith('es')) || voices[0] || null;
+  }
+
+  function startSpeaking(){
+    stopPlaybackEngines();
+    speakCurrentSentence();
+  }
+
+  async function speakCurrentSentence(){
+    if (!state.playing) return;
+    const page = state.pages[state.pageIndex];
+    if (!page) return;
+
+    if (state.sentenceIndex >= page.sentences.length){
+      if (state.pageIndex < state.pages.length - 1){
+        state.pageIndex++;
+        state.sentenceIndex = 0;
+        renderPage();
+        speakCurrentSentence();
+      } else {
+        state.playing = false;
+        updatePlayButton();
+      }
+      return;
+    }
+
+    const text = page.sentences[state.sentenceIndex];
+    updateHighlight();
+
+    if (state.engine === 'kokoro' && state.kokoroTTS){
+      try{
+        const result = await state.kokoroTTS.generate(text, {
+          voice: state.kokoroVoice,
+          speed: state.rate,
+        });
+        if (!state.playing) return;
+        const blob = result.toBlob();
+        const url = URL.createObjectURL(blob);
+        currentAudioEl = new Audio(url);
+        currentAudioEl.onended = ()=>{
+          URL.revokeObjectURL(url);
+          if (!state.playing) return;
+          state.sentenceIndex++;
+          speakCurrentSentence();
+        };
+        currentAudioEl.onerror = ()=>{
+          if (!state.playing) return;
+          state.sentenceIndex++;
+          speakCurrentSentence();
+        };
+        await currentAudioEl.play();
+      }catch(err){
+        console.error(err);
+        if (!state.playing) return;
+        state.sentenceIndex++;
+        speakCurrentSentence();
+      }
+      return;
+    }
+
+    // system engine
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = state.rate;
+    const v = pickVoice();
+    if (v) utter.voice = v;
+    utter.onend = ()=>{
+      if (!state.playing) return;
+      state.sentenceIndex++;
+      updateHighlight();
+      speakCurrentSentence();
+    };
+    utter.onerror = ()=>{
+      if (!state.playing) return;
+      state.sentenceIndex++;
+      speakCurrentSentence();
+    };
+    speechSynthesis.speak(utter);
+  }
+
+  function play(){
+    if (!state.pages.length) return;
+    if (state.engine === 'kokoro' && !state.kokoroTTS){
+      showError('Primero descarga la voz neuronal (botón abajo) o cambia a "Voz del sistema".');
+      return;
+    }
+    clearError();
+    state.playing = true;
+    updatePlayButton();
+    startSpeaking();
+  }
+  function pause(){
+    state.playing = false;
+    stopPlaybackEngines();
+    updatePlayButton();
+  }
+  function updatePlayButton(){
+    playBtn.textContent = state.playing ? '⏸' : '▶';
+    playBtn.setAttribute('aria-label', state.playing ? 'Pausar' : 'Reproducir');
+  }
+
+  playBtn.addEventListener('click', ()=>{ state.playing ? pause() : play(); });
+
+  prevPageBtn.addEventListener('click', ()=>{
+    if (state.pageIndex > 0){
+      state.pageIndex--; state.sentenceIndex = 0; renderPage();
+      if (state.playing) startSpeaking();
+    }
+  });
+  nextPageBtn.addEventListener('click', ()=>{
+    if (state.pageIndex < state.pages.length - 1){
+      state.pageIndex++; state.sentenceIndex = 0; renderPage();
+      if (state.playing) startSpeaking();
+    }
+  });
+  prevSentBtn.addEventListener('click', ()=>{
+    if (state.sentenceIndex > 0){
+      state.sentenceIndex--; updateHighlight();
+      if (state.playing) startSpeaking();
+    }
+  });
+  nextSentBtn.addEventListener('click', ()=>{
+    const page = state.pages[state.pageIndex];
+    if (page && state.sentenceIndex < page.sentences.length - 1){
+      state.sentenceIndex++; updateHighlight();
+      if (state.playing) startSpeaking();
+    }
+  });
+  pageSelect.addEventListener('change', ()=>{
+    state.pageIndex = parseInt(pageSelect.value,10);
+    state.sentenceIndex = 0; renderPage();
+    if (state.playing) startSpeaking();
+  });
+  rateRange.addEventListener('input', ()=>{
+    state.rate = parseFloat(rateRange.value);
+    rateValue.textContent = state.rate.toFixed(1) + '×';
+    if (state.playing) startSpeaking();
+  });
+
+  function populateVoices(){
+    voices = speechSynthesis.getVoices();
+    if (!voices.length) return;
+    voiceSelect.innerHTML = '';
+    voices.forEach((v,i)=>{
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = `${v.name} (${v.lang})`;
+      voiceSelect.appendChild(opt);
+    });
+    const esIdx = voices.findIndex(v=>v.lang && v.lang.toLowerCase().startsWith('es'));
+    voiceSelect.value = esIdx >= 0 ? esIdx : 0;
+    state.voice = voices[voiceSelect.value];
+  }
+  voiceSelect.addEventListener('change', ()=>{
+    state.voice = voices[parseInt(voiceSelect.value,10)];
+    if (state.playing && state.engine === 'system') startSpeaking();
+  });
+  if ('speechSynthesis' in window){
+    populateVoices();
+    speechSynthesis.onvoiceschanged = populateVoices;
+  }
+
+  // ---------- Kokoro neural engine ----------
+  engineSelect.addEventListener('change', ()=>{
+    state.engine = engineSelect.value;
+    const isKokoro = state.engine === 'kokoro';
+    kokoroRow.style.display = isKokoro ? 'flex' : 'none';
+    voiceSelect.style.display = isKokoro ? 'none' : '';
+    if (state.playing) startSpeaking();
+  });
+  kokoroVoiceSelect.addEventListener('change', ()=>{
+    state.kokoroVoice = kokoroVoiceSelect.value;
+    if (state.playing && state.engine === 'kokoro') startSpeaking();
+  });
+
+  loadKokoroBtn.addEventListener('click', async ()=>{
+    if (state.kokoroLoading || state.kokoroTTS) return;
+    state.kokoroLoading = true;
+    loadKokoroBtn.disabled = true;
+    clearError();
+    kokoroStatus.classList.add('show');
+    kokoroStatus.firstChild.textContent = 'Descargando modelo de voz…';
+    kokoroBar.style.width = '2%';
+    try{
+      const mod = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm');
+      const { KokoroTTS } = mod;
+      const model_id = 'onnx-community/Kokoro-82M-v1.0-ONNX';
+      const tts = await KokoroTTS.from_pretrained(model_id, {
+        dtype: 'q8',
+        device: 'wasm',
+        progress_callback: (p)=>{
+          if (p && typeof p.progress === 'number'){
+            kokoroBar.style.width = Math.round(p.progress) + '%';
+            kokoroStatus.firstChild.textContent = `Descargando modelo de voz… ${Math.round(p.progress)}%`;
+          }
+        },
+      });
+      state.kokoroTTS = tts;
+      kokoroStatus.firstChild.textContent = 'Voz neuronal lista.';
+      kokoroBar.style.width = '100%';
+      loadKokoroBtn.textContent = 'Voz descargada ✓';
+      setTimeout(()=>{ kokoroStatus.classList.remove('show'); }, 2500);
+    }catch(err){
+      console.error(err);
+      kokoroStatus.classList.remove('show');
+      loadKokoroBtn.disabled = false;
+      showError('No se pudo cargar la voz neuronal. Revisa tu conexión, o usa la "Voz del sistema" mientras tanto.');
+    }finally{
+      state.kokoroLoading = false;
+    }
+  });
+
+  window.addEventListener('beforeunload', ()=>{ stopPlaybackEngines(); });
+})();
+</script>
+</body>
+</html>
